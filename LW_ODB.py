@@ -1,6 +1,9 @@
 #!/usr/bin/python3
 
-import csv, logging, os, pprint
+import csv, logging, os, pathlib, pprint, sys
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
+
 import ed5decode
 import edl
 
@@ -30,6 +33,7 @@ class LW_ODB:
     def __init__(self, filename):
         self.filename = filename
         self.metadata = {}
+        """dict of misc values in the odb file"""
         self.flens = None
         """list of field lengths"""
         self.ftypes = None
@@ -39,7 +43,7 @@ class LW_ODB:
         self.fnum = None
         """map from field name to field index"""
         self.items = {}
-        """rows = map from Cookie to dict of fname/value"""
+        """rows = map from Cookie to dict of fname/value; special '.ed5' is parsed ed5 file"""
 
         self.loadProject()
         print(self.metadata['PROJECT_NAME'])
@@ -92,6 +96,36 @@ class LW_ODB:
             seg_file = os.path.join(directory, '%s.ed5' % cookie)
             item['.ed5'] = ed5decode.ED5(seg_file)
 
+    def fixEdits(self, edit_cells):
+        """Fix and clean list of edits."""
+        
+        # merge pair of cells
+        num =  len(edit_cells)
+        if num % 2:
+            raise ValueError('odd number of edit cells')
+        else:
+            for n in range(num-1, 0, -2):
+                edit_cells[n-1]['src_out'] = edit_cells[n]['src_out']
+                edit_cells[n-1]['rec_out'] = edit_cells[n]['rec_out']
+                del edit_cells[n]
+        
+        # merge related cuts
+        [ a != b 
+        and a['reel']    == b['reel']    
+        and a['src_in']  == b['src_in']  
+        and a['src_out'] == b['src_out'] 
+        and a['rec_in']  == b['rec_in']  
+        and a['rec_out'] == b['rec_out'] 
+        
+        and not a.update(track=a['track']+' '+b['track'])
+        and not edit_cells.remove(b)
+        
+        for a in edit_cells
+        for b in edit_cells]
+
+        return edit_cells
+
+
     def makeEDL(self):
         for cookie in self.items:
             item = self.items[cookie]
@@ -101,24 +135,108 @@ class LW_ODB:
                 e.title = self.metadata['PROJECT_NAME']
 
                 edits = item['.ed5'].edit_cells
+                self.fixEdits(edits)
                 num = 1
                 for c in edits:
-                    b = edl.EDLBlock()
-                    b.id = num
-                    num += 1
-                    b.reel = c['reel']
-                    b.channels = c['track']
-                    b.transition = 'C'
-                    #b.transDur = ?
-                    b.srcIn = c['src_in']
-                    b.srcOut = c['src_out']
-                    b.recIn = c['rec_in']
-                    b.recOut = c['rec_out']
-                    #c['aud'], c['from_clip']
-                    e.append(b)
-
+                    if c['reel'] == 'BL':
+                        # black frame
+                        pass
+                    else:
+                        b = edl.EDLBlock()
+                        b.id = num
+                        num += 1
+                        b.reel = c['reel']
+                        b.channels = c['track']
+                        b.transition = 'C'
+                        #b.transDur = ?
+                        b.srcIn = c['src_in']
+                        b.srcOut = c['src_out']
+                        b.recIn = c['rec_in']
+                        b.recOut = c['rec_out']
+                        #c['aud'], c['from_clip']
+                        e.append(b)
         return e
 
+    def makeFcpxml(self):
+        # minimal file for Premiere to accept:
+        # condensed <element/> not allowed!
+        # <?xml version="1.0"?>
+        # <xmeml version="4">
+	#   <project>
+	#     <name>name</name>
+	#     <children></children>
+	#   </project>
+	# </xmeml>
+
+        uid = 1
+
+        root = ET.Element('xmeml', {'version': '4'})
+        project = ET.SubElement(root, 'project')
+        name = ET.SubElement(project, 'name')
+        name.text = 'generated'
+        children = ET.SubElement(project, 'children')
+        children.tail = ' '  #prevent condensing
+
+        project_children_bin = ET.SubElement(children, 'bin')
+        name = ET.SubElement(project_children_bin, 'name')
+        name.text = 'Assets'
+        children = ET.SubElement(project_children_bin, 'children')
+        children.tail = ' '  #prevent condensing
+        
+        for cookie in self.items:
+            item = self.items[cookie]
+            if item["Type"] == "edit":
+                continue
+            elif item["Type"] == "shot":
+                ed5 = item['.ed5'].EHP
+                keys = ed5.keys()
+                files = set()
+                for k in keys:
+                    if k.startswith("ORIGINAL_FILE_"):
+                        files.add(ed5[k])
+                if len(files) == 0:
+                    logging.error('cookie has zero files: %s' % item["Cookie"])
+                    filepath = ""
+                elif len(files) > 1:
+                    logging.error('cookie has many files: %s => %s' % [item["Cookie"], files])
+                    filepath = next(iter(files))
+                else:
+                    filepath = next(iter(files))
+
+                if len(filepath) > 0:
+                    filepath = pathlib.Path(filepath).as_uri()
+                
+                clip = ET.SubElement(children, 'clip', id=item['Cookie'])
+                
+                t = ET.SubElement(clip, 'ismasterclip')
+                t.text = 'TRUE'
+                clip_rate = ET.SubElement(clip, 'rate')
+                t = ET.SubElement(clip_rate, 'timebase')
+                t.text = '30'
+                t = ET.SubElement(clip_rate, 'ntsc')
+                t.text = 'TRUE'
+                t = ET.SubElement(clip, 'name')
+                t.text = item['Cookie']
+                
+                clip_media = ET.SubElement(clip, 'media')
+                clip_media_video = ET.SubElement(clip_media, 'video')
+                clip_media_video_track = ET.SubElement(clip_media_video, 'track')
+                clipitem = ET.SubElement(clip_media_video_track, 'clipitem',
+                                         id='clipitem-%s' % uid)
+                uid += 1
+                clipitem_file = ET.SubElement(clipitem, 'file', id='file-%s' % uid)
+                uid += 1
+                pathurl = ET.SubElement(clipitem_file, 'pathurl')
+                pathurl.text = filepath
+                clipitem_file_media = ET.SubElement(clipitem_file, 'media')
+                t = ET.SubElement(clipitem_file_media, 'video')
+                t.text = ' '
+                t = ET.SubElement(clipitem_file_media, 'audio')
+                t.text = ' '
+            else:
+                logging.error('unknown asset type %s' % item["Type"])
+        
+        return ET.ElementTree(root)
 
 
 class LW_Item:
@@ -138,26 +256,11 @@ class LW_Item:
 
 
 if __name__ == '__main__':
-    odb = LW_ODB("Ep6_Sc3-Archive.Archive\summary.odb")
-    edl = odb.makeEDL()
-    e.savePremiere()
+    odb = LW_ODB(".ignore\Ep6_Sc3-Archive.Archive\summary.odb")
+##    edl = odb.makeEDL()
+##    edl.savePremiere()
 
-
-##    for cookie in odb.items:
-##        item = odb.items[cookie]
-##        if item["Type"] == "shot":
-##            itemdata = item['.ed5'].EHP
-##            keys = itemdata.keys()
-##            files = set()
-##            for k in keys:
-##                if k.startswith("ORIGINAL_FILE_"):
-##                    files.add(itemdata[k])
-##            if len(files) == 0:
-##                print(cookie, " => NOTHING!")
-##            elif len(files) > 1:
-##                print("ERROR: ", cookie, " => ", files)
-##            else:
-##                f = next(iter(files))
-##                print(cookie, " => ", f)
-##        else:
-##            print("edit ", cookie)
+    et = odb.makeFcpxml()
+    xmlstr = minidom.parseString(ET.tostring(et.getroot())).toprettyxml(indent="  ")
+    with open("output.xml", "wt") as f:
+        f.write(xmlstr)
