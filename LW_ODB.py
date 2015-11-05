@@ -2,8 +2,26 @@
 
 import csv, logging, os, pprint
 import ed5decode
-import EDL
+import edl
 
+"""
+LW_ODB.py -- Classes to help read Lightworks *.odb files.
+
+Copyright (C) 2015 William R. Zwicky <wrzwicky@pobox.com>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
 
 # *.odb file from LightWorks
 # Plain text, structure is pretty self evident.
@@ -79,13 +97,13 @@ class LW_ODB:
             item = self.items[cookie]
             if item["Type"] == "edit":
                 itemdata = item['.ed5'].EHP
-                e = EDL.EDL()
+                e = edl.EDL()
                 e.title = self.metadata['PROJECT_NAME']
 
                 edits = item['.ed5'].edit_cells
                 num = 1
                 for c in edits:
-                    b = EDL.EDLBlock()
+                    b = edl.EDLBlock()
                     b.id = num
                     num += 1
                     b.reel = c['reel']
