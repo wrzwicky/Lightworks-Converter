@@ -1,0 +1,183 @@
+notes about lightworks project file structure
+
+the project file
+================
+
+there is at minimum number of one *.odb file in the project
+folder.  the relevant file has the same basename as the project folder,
+only the first letter is an 'O' instead of 'P' (e.g. .../P80300QU/ =>
+O80300QU.odb) in archives 'summary.odb' is used
+
+it's a comma separated text format using DOS line break conventions (CR+LF)
+
+starting with a header: 
+
+"OLEDB:Rev 1"
+"PROJDB_VERSION:V1.16"
+"PROJECT_NAME:..."
+"PROJECT_RATE:25"
+"PROJECT_PSWD:..."
+"OLEDB"
+
+followed by lines of of comma separated text fields enclosed in
+quotation marks. each line contains the same number of fields.
+
+the first three lines describe the data structure:
+
+1: width of the data fields
+2: types of field (text, timecode, dos_date, ...)
+3: name of field
+
+all following lines are related to clips, edits etc.
+
+the first field ('Cookie') is used by lightworks in various ways. 
+it uses base36 encoding to represent a numeric value in a compact
+character string. for each line in project database there exists an
+*ed5 binary database in the project folder using this cookie as
+basename.
+
+'Type' may be 'shot' (also used for video clip, photo, sound files!) 
+or 'edit'
+
+lines with a value of '66' in the 'Flags' field looks like standing
+for unused or vanished transient members; shots usually seam to show
+'1' and edits '2'
+
+'Date' is given in seconds since epoch
+
+timecode fields are using the format HH:MM:SS.FF and HH:MM:SS+FF
+(24fps NTSC dropframe relation)
+
+
+ed5 files
+=========
+
+these files use some form of binary packed data to store the actual
+state of clips an edits in a lightworks project folder. files ending
+in '.U<number>' are backup versions of some older state.
+
+ed5 files use a folded structure of segments, subsegments and cells to
+store data.
+
+segments
+--------
+
+on the topmost level ed5 files use a list of elements of this form:
+
+header
+  zero terminated string = label (on segment level always: '$')
+  2 byte  = unknown data (short int)
+  4 bytes = length of subsegment index (int)
+  4 bytes = length of content in bytes (int)
+  zero terminated string = subsegment index 
+content
+  ... a list of subsegments over the byte range specified in the header
+
+you will find repeating instances of this kind of structure up to end
+of the file.
+
+subsegments
+-----------
+
+this kind of elements use a very similar structure:
+
+header
+  zero terminated string = label ('C', 'AS', etc.)
+  2 byte  = unknown data (short int)
+  4 bytes = length of subsegment data (int)
+  4 bytes = length of data up to the and of segment (int)
+content
+  this depends on the type of this subsegment / label 
+
+Label: T
+--------
+
+this will always be the first type of subsegment in any segment.
+it's one simple string:
+
+  1 byte = unknown data
+  zero terminated string = ID string
+
+Label: EHP
+----------
+
+the very prominent second subsection in every ed5 file.
+three columns of key/value/type text data.
+
+  2 bytes = unknown data
+  4 bytes = number of following triple strings (int)
+
+     zero terminated string = name of field 
+     zero terminated string = value
+     zero terminated string = type of field (int, double, cookie, etc.)
+
+here is some mapping of metadata going on.
+e.g. the start timecode ist set by some lables. etc.
+
+Label: C
+--------
+
+this type of data contains most of the elementary edit information.
+all timing information is given in seconds.
+
+header
+  1 byte = unknown data
+  zero terminated string = Ref ID string
+  zero terminated string = track ("V1", "A1", etc.)
+  zero terminated string = subtype info
+  zero terminated string = unknown / empty
+  8 bytes = frame_duration / first frame [?] (double)
+  4 bytes = total number of following cells
+
+on empty edits will not see more data than this (number of cells = 0).
+
+  4 bytes = number of edits (int)
+  4 bytes = number of others (int)
+
+on ed5 files of 'edits' the sum of both vales are the same as the
+total given on field before. but ed5 files related to 'shots' (simple
+clips, soundfies, etc) will have an edit section using a slightly
+different format. in this case you will find an odd value like '3' in
+the first field and '0xf0000000' in the second.
+
+for usual 'edits' the subsequent data will look like this:
+
+  9 bytes = unknown data
+  n * 64 byte cells
+
+you will find useful information in this cells:
+
+  byte 9-12 = speed (float) 1=100%, 0.5=50%, etc
+
+  byte 17-24 = REC time (float) seconds
+  byte 24-32 = SRC time (float) seconds
+  byte 45-48 = IN/OUT selector (int) on '1' timing stands for IN-point
+                                     on '4' timing stands for OUT-point 
+
+  byte 33-36 = reel (int) use base36 encoding to get the last 4 digits
+                          of the cookie related to the source
+
+                          1 stands for 'black'
+                          0xb655 (="100L" in base36) effect/dissolve... 
+
+  byte 42 = scope (char) 'V' for video [and sound]
+                         'S' for sound
+  
+  byte 53-56 = group ID (int) unknown
+  byte 57-60 = edit ID (int) unknown
+   
+  
+Label: A
+--------
+
+the audio envelope data
+
+  4 bytes = number of cells
+
+  n * 21 byte cells
+
+      data within cell:
+
+      byte 1-8 = time (float) in seconds
+      byte 12-15 = gain
+
