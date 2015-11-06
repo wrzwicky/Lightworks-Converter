@@ -3,6 +3,7 @@
 import csv, logging, os, pathlib, pprint, sys
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
+from yattag import Doc
 
 import ed5decode
 import edl
@@ -99,7 +100,7 @@ class LW_ODB:
     def fixEdits(self, edit_cells):
         """Fix and clean list of edits."""
         
-        # merge pair of cells
+        # merge pairs of cells
         num =  len(edit_cells)
         if num % 2:
             raise ValueError('odd number of edit cells')
@@ -173,21 +174,108 @@ class LW_ODB:
         root = ET.Element('xmeml', {'version': '4'})
         project = ET.SubElement(root, 'project')
         name = ET.SubElement(project, 'name')
-        name.text = 'generated'
+        name.text = self.metadata['PROJECT_NAME']
         children = ET.SubElement(project, 'children')
         children.tail = ' '  #prevent condensing
 
-        project_children_bin = ET.SubElement(children, 'bin')
-        name = ET.SubElement(project_children_bin, 'name')
-        name.text = 'Assets'
-        children = ET.SubElement(project_children_bin, 'children')
-        children.tail = ' '  #prevent condensing
+##        project_children_bin = ET.SubElement(children, 'bin')
+##        name = ET.SubElement(project_children_bin, 'name')
+##        name.text = 'Assets'
+##        children = ET.SubElement(project_children_bin, 'children')
+##        children.tail = ' '  #prevent condensing
         
         for cookie in self.items:
             item = self.items[cookie]
+
             if item["Type"] == "edit":
-                continue
+                # Describes an edited sequence.
+
+                doc, tag, text = Doc().tagtext()
+
+                with tag('sequence', id='sequence-%s' % uid):
+                    uid += 1
+                    with tag('rate'):
+                        with tag('timebase'):
+                            text('30')
+                        with tag('ntsc'):
+                            text('TRUE')
+                    with tag('name'):
+                        text(self.metadata['PROJECT_NAME'])
+                    with tag('media'):
+                        with tag('video'):
+                            with tag('format'):
+                                with tag('samplecharacteristics'):
+                                    with tag('rate'):
+                                        with tag('timebase'):
+                                            text('30')
+                                        with tag('ntsc'):
+                                            text('TRUE')
+                                    with tag('width'):
+                                        text('1920')
+                                    with tag('height'):
+                                        text('1080')
+                                    with tag('anamorphic'):
+                                        text('FALSE')
+                                    with tag('pixelaspectratio'):
+                                        text('square')
+                                    with tag('fielddominance'):
+                                        text('none')
+                                    with tag('colordepth'):
+                                        text('24')
+
+                            with tag('track'):
+                                edits = item['.ed5'].edit_cells
+                                self.fixEdits(edits)
+
+                                for c in edits:
+                                    if c['reel'] == 'BL':
+                                        # black frame
+                                        pass
+                                    else:
+                                        id_clipitem = 'clipitem-%s' % uid
+                                        uid += 1
+                                        with tag('clipitem', id=id_clipitem):
+                                            with tag('start'):
+                                                text('1')
+                                            with tag('end'):
+                                                text('11')
+                                            with tag('in'):
+                                                text('21')
+                                            with tag('out'):
+                                                text('31')
+                                            doc.stag('file', id='file-%s' % c['reel'])
+                                            with tag('link'):
+                                                with tag('linkclipref'):
+                                                    text(id_clipitem)
+                                                with tag('mediatype'):
+                                                    text('video')
+                                                with tag('trackindex'):
+                                                    text('1')
+                                                with tag('clipindex'):
+                                                    text('1')
+
+##                                            b.reel = c['reel']
+##                                            b.channels = c['track']
+##                                            b.transition = 'C'
+##                                            #b.transDur = ?
+##                                            b.srcIn = c['src_in']
+##                                            b.srcOut = c['src_out']
+##                                            b.recIn = c['rec_in']
+##                                            b.recOut = c['rec_out']
+##                                            #c['aud'], c['from_clip']
+
+                children.append( ET.fromstring(doc.getvalue()) )
+
             elif item["Type"] == "shot":
+                # Describes a video clip.
+                # Tested by importing into Premiere CS6.
+                # Elements and values below are required; Pre will crash or
+                #  simply fail to see the clip otherwise.
+                # P requires certain elements, even if empty.
+                # P requires 'id' attribute on some elements, but not all.
+                
+                doc, tag, text = Doc().tagtext()
+
                 ed5 = item['.ed5'].EHP
                 keys = ed5.keys()
                 files = set()
@@ -205,34 +293,34 @@ class LW_ODB:
 
                 if len(filepath) > 0:
                     filepath = pathlib.Path(filepath).as_uri()
-                
-                clip = ET.SubElement(children, 'clip', id=item['Cookie'])
-                
-                t = ET.SubElement(clip, 'ismasterclip')
-                t.text = 'TRUE'
-                clip_rate = ET.SubElement(clip, 'rate')
-                t = ET.SubElement(clip_rate, 'timebase')
-                t.text = '30'
-                t = ET.SubElement(clip_rate, 'ntsc')
-                t.text = 'TRUE'
-                t = ET.SubElement(clip, 'name')
-                t.text = item['Cookie']
-                
-                clip_media = ET.SubElement(clip, 'media')
-                clip_media_video = ET.SubElement(clip_media, 'video')
-                clip_media_video_track = ET.SubElement(clip_media_video, 'track')
-                clipitem = ET.SubElement(clip_media_video_track, 'clipitem',
-                                         id='clipitem-%s' % uid)
-                uid += 1
-                clipitem_file = ET.SubElement(clipitem, 'file', id='file-%s' % uid)
-                uid += 1
-                pathurl = ET.SubElement(clipitem_file, 'pathurl')
-                pathurl.text = filepath
-                clipitem_file_media = ET.SubElement(clipitem_file, 'media')
-                t = ET.SubElement(clipitem_file_media, 'video')
-                t.text = ' '
-                t = ET.SubElement(clipitem_file_media, 'audio')
-                t.text = ' '
+
+                with tag('clip', id=item['Cookie']):
+                    with tag('ismasterclip'):
+                        text('TRUE')
+                    with tag('rate'):
+                        with tag('timebase'):
+                            text('30')
+                        with tag('ntsc'):
+                            text('TRUE')
+                    with tag('name'):
+                        text(item['Cookie'])
+
+                    with tag('media'):
+                        with tag('video'):
+                            with tag('track'):
+                                with tag('clipitem', id='clipitem-%s' % uid):
+                                    uid += 1
+                                    with tag('file', id='file-%s' % item['Cookie']):
+                                        with tag('pathurl'):
+                                            text(filepath)
+                                        with tag('media'):
+                                            with tag('video'):
+                                                text(' ')
+                                            with tag('audio'):
+                                                text(' ')
+
+                children.append( ET.fromstring(doc.getvalue()) )
+
             else:
                 logging.error('unknown asset type %s' % item["Type"])
         
