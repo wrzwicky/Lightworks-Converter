@@ -393,6 +393,9 @@ class ED5:
             f.write('\n'.join(output))
             f.close()
 
+    def fcpxml(self, fcp_filename):
+        "dump the edit as Final Cut XML"
+        pass
 
             
 class Segment:
@@ -671,31 +674,37 @@ def main():
                          version='%(prog)s: ' + VERSION)
     parser.add_argument('-d', '--debug', action='store_true' )
     parser.add_argument('files', metavar='FILE', nargs='+' )
+
     parser.add_argument('-m', '--mlt', metavar='FILE',
                         help='export as MLT XML (use "-" for stdout)')
     parser.add_argument('-e', '--edl', metavar='FILE',
                         help='export as EDL (use "-" for stdout)')
+    parser.add_argument('-x', '--fcpxml', metavar='FILE',
+                        help='export as Final Cut XML (use "-" for stdout)')
+
     parser.add_argument('-c', '--clipnames', action='store_true',
                         help='use clipname as reel in EDL')
     parser.add_argument('-g', '--gvg-edl', action='store_true',
                         help='grass valley group EDL format')
+
     args = parser. parse_args()
     #print('ARGS:', args)
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
 
-    if args.edl and args.mlt:
-        logging.error('you can use only one export format')
-        sys.exit(0)
+##    if args.edl and args.mlt and args.fcpxml:
+##        logging.error('you can use only one export format')
+##        sys.exit(0)
     
     for f in args.files:
         ed5 = ED5(f)
 
         if args.edl:
             ed5.edl(args.edl, args.clipnames, args.gvg_edl)
-            
         if args.mlt:
             ed5.mlt(args.mlt)
+        if args.fcpxml:
+            ed5.fcpxml(args.fcpxml)
     
 if __name__ == '__main__':
     main()
