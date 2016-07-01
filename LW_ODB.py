@@ -328,19 +328,19 @@ class LW_ODB:
 
 
 class LW_Item:
-    ## temp class to hunt for something better
-    #self.cookie
-    #self.data #dict key->value
-    #self.ed5  #ed5decode.ED5 object
+    """quickie class to hunt for a better way to wrap things together"""
 
     def __init__(self, data, filename):
         self.filename = filename
 
         self.data = data
+        """dict key->value"""
         self.cookie = data['Cookie']
+        """What LightWorks calls this thing."""
 
         seg_file = os.path.join(directory, '%s.ed5' % cookie)
         self.ed5 = ed5decode.ED5(seg_file)
+        """ed5decode.ED5 object, decoded from filename"""
 
 
 if __name__ == '__main__':

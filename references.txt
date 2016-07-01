@@ -1,0 +1,24 @@
+http://www.lwks.com/index.php?option=com_kunena&func=view&catid=23&id=62779&Itemid=81
+
+Looks like the .ed5 files contain the extracted meta-data. This includes the time-code. These files are binary records (correction: they're string records in a binary file) so using a hex editor I changed the time code at the record:
+LABEL_REV:1 ntsc_drop_label 00:00:00;00 113 0.0333666667 1 MediumRollId 24,2
+I changed the hour from 00 to 01 then opened the project and the timecode in the viewer now reflected my change. Looks like the key is to parse the ed5 files as binary records, make the change to the timecode record and re-write the ed5 file. Records are separated by nul bytes (0x00).
+
+-----
+
+for very simple examples (like the LWKS tutorials) it should do it's job:
+
+python3 ed5decode.py  -m /tmp/test.mlt doc/Coffee\ Demo.Archive/E706013R.ed5
+
+you can view the result in 'melt'
+
+melt /tmp/test.mlt
+
+
+or render it to some file (most of ffmpegs options are available)
+
+melt -consumer avformat:/tmp/file.mp4 vcodec=libx264 vb=8M /tmp/test.mlt
+
+-----
+
+https://eyeframeconverter.wordpress.com/mlt2edl/
