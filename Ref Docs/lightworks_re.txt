@@ -1,4 +1,7 @@
 notes about lightworks project file structure
+from user fischerb @ lwks.com forum
+https://www.lwks.com/index.php?option=com_kunena&func=view&catid=23&id=62779&Itemid=81#64480
+http://users.mur.at/ms/projects/lightworks_re/
 
 the project file
 ================
